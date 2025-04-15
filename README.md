@@ -39,7 +39,7 @@ The workflow consists of two core modules:
 
 ### Installation
 ```bash
-git clone https://github.com/ryan_schwartz88/agentic-cve-remediation.git
+git clone https://github.com/ryan_schwartz88/second_front.git
 cd agentic-cve-remediation
 pip install -r requirements.txt
 ```
