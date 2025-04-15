@@ -109,7 +109,7 @@ def save_text_file(text, filepath):
 def create_output_directory(cve_id):
     """Create a timestamped directory for output files."""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    dir_name = f"cve_results_{cve_id}_{timestamp}"
+    dir_name = f"cve_results_{cve_id}---{timestamp}"
     
     # Create the directory
     output_dir = os.path.join(os.getcwd(), "results", dir_name)
