@@ -27,12 +27,12 @@ def setup_argparser():
     
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     
-    # Legacy direct CVE command
-    cve_parser = subparsers.add_parser("cve", help="Process a single CVE")
+    # Legacy direct vulnerability ID command
+    cve_parser = subparsers.add_parser("cve", help="Process a single vulnerability ID (CVE or GHSA)")
     cve_parser.add_argument(
         "--cve", 
         required=True, 
-        help="CVE ID to research and remediate (e.g., CVE-2017-16911)"
+        help="Vulnerability ID to research and remediate (e.g., CVE-2017-16911 or GHSA-xxxx-yyyy-zzzz)"
     )
     cve_parser.add_argument(
         "--output", 
@@ -226,9 +226,13 @@ def process_scan(args):
 
 
 def process_single_cve(args):
-    """Process a single CVE (legacy mode)."""
-    print("\n=== Agentic CVE Remediation Workflow - Single CVE Mode ===\n")
-    print(f"Researching {args.cve}...\n")
+    """Process a single vulnerability ID (CVE or GHSA) in legacy mode."""
+    vuln_id = args.cve
+    is_ghsa = vuln_id.upper().startswith("GHSA-")
+    mode_desc = "GHSA" if is_ghsa else "CVE"
+    
+    print(f"\n=== Agentic CVE Remediation Workflow - Single {mode_desc} Mode ===\n")
+    print(f"Researching {vuln_id}...\n")
     
     try:
         # Import legacy modules (only when needed)
@@ -295,6 +299,8 @@ def process_single_cve(args):
         
         # Combine and save full results
         results = {
+            "vulnerability_id": vulnerability_info.get("vulnerability_id", args.cve),
+            "cve_id": vulnerability_info.get("cve_id"),
             "vulnerability_info": vulnerability_info,
             "remediation_plan": remediation_plan
         }

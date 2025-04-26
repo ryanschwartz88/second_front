@@ -64,7 +64,7 @@ The workflow consists of the following modules:
 ### Installation
 ```bash
 git clone https://github.com/ryan_schwartz88/second_front.git
-cd agentic-cve-remediation
+cd second_front
 pip install -r requirements.txt
 ```
 
