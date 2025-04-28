@@ -7,8 +7,7 @@ the research and resolver modules.
 """
 import concurrent.futures
 import os
-import multiprocessing
-from typing import Dict, List, Any, Callable
+from typing import Dict, List, Any
 
 from modules.research_module import ResearchModule
 from modules.resolver_module import ResolverModule
@@ -26,7 +25,7 @@ class Dispatcher:
         Args:
             max_workers: Maximum number of worker threads. Defaults to CPU count.
         """
-        self.max_workers = max_workers if max_workers else os.cpu_count()
+        self.max_workers = max_workers if max_workers and max_workers <= os.cpu_count() else os.cpu_count()
         self.research_module = ResearchModule()
         self.resolver_module = ResolverModule()
     

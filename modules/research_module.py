@@ -3,6 +3,7 @@ Research Module - Agentic RAG component for CVE information gathering
 """
 import os
 import google.generativeai as genai
+import cohere
 from dotenv import load_dotenv
 from api_clients.cvedetails import CVEDetailsClient
 from api_clients.ghsa import GHSAClient
@@ -13,24 +14,41 @@ import time
 class ResearchModule:
     """
     Research Module that aggregates CVE information from multiple sources
-    and uses Gemini to generate a comprehensive summary.
+    and uses AI models (Gemini or Cohere) to generate a comprehensive summary.
     """
     
-    def __init__(self):
-        """Initialize the Research Module with API clients."""
+    def __init__(self, llm_type="cohere"):
+        """Initialize the Research Module with API clients.
+        
+        Args:
+            llm_type: The LLM service to use ("gemini" or "cohere")
+        """
         load_dotenv()
         
         # Initialize API clients
         self.cvedetails_client = CVEDetailsClient()
         self.ghsa_client = GHSAClient()
         
-        # Initialize Gemini AI
-        gemini_api_key = os.environ.get("GEMINI_API_KEY")
-        if not gemini_api_key:
-            raise ValueError("Gemini API key is required. Set GEMINI_API_KEY in .env file.")
+        self.llm_type = llm_type.lower()
         
-        genai.configure(api_key=gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-2.5-pro-exp-03-25')
+        # Initialize LLM based on type
+        if self.llm_type == "gemini":
+            gemini_api_key = os.environ.get("GEMINI_API_KEY")
+            if not gemini_api_key:
+                raise ValueError("Gemini API key is required. Set GEMINI_API_KEY in .env file.")
+            
+            genai.configure(api_key=gemini_api_key)
+            self.model = genai.GenerativeModel('gemini-2.5-pro-exp-03-25')
+            
+        elif self.llm_type == "cohere":
+            cohere_api_key = os.environ.get("COHERE_API_KEY")
+            if not cohere_api_key:
+                raise ValueError("Cohere API key is required. Set COHERE_API_KEY in .env file.")
+            
+            self.co_client = cohere.ClientV2(cohere_api_key)
+            
+        else:
+            raise ValueError(f"Unsupported LLM type: {llm_type}. Must be 'gemini' or 'cohere'.")
     
     def research_cve(self, vuln_id):
         """
@@ -137,7 +155,7 @@ class ResearchModule:
     
     def _generate_summary(self, vuln_id, vulnerability_data):
         """
-        Generate a comprehensive summary of the vulnerability using Gemini.
+        Generate a comprehensive summary of the vulnerability using the configured LLM.
         
         Args:
             vuln_id: The vulnerability ID (CVE or GHSA)
@@ -146,7 +164,7 @@ class ResearchModule:
         Returns:
             str: A comprehensive summary of the vulnerability
         """
-        # Prepare the prompt for Gemini
+        # Prepare the prompt for the LLM
         
         prompt = f"""
         Generate a comprehensive summary of the vulnerability {vuln_id} based on the following information.
@@ -171,10 +189,30 @@ class ResearchModule:
         Make the summary detailed but concise, focusing on the most important and actionable information.
         """
         
-        # Generate the summary
-        response = self.model.generate_content(prompt)
-        
-        return response.text
+        # Generate the summary based on LLM type
+        try:
+            if self.llm_type == "gemini":
+                response = self.model.generate_content(prompt)
+                return response.text
+            elif self.llm_type == "cohere":
+                response = self.co_client.chat(
+                    model="command-a-03-2025",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are a security expert who specializes in analyzing vulnerabilities and creating comprehensive summaries."
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    temperature=0.7
+                )
+                return response.message.content[0].text
+        except Exception as e:
+            print(f"Error generating summary with {self.llm_type}: {str(e)}")
+            return f"Failed to generate a summary using {self.llm_type} due to an error."
     
     def _format_cve_details(self, cve_details):
         """Format CVE details for the prompt."""

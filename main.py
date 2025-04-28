@@ -18,25 +18,32 @@ from dotenv import load_dotenv
 from modules.parser import VulnerabilityParser
 from modules.dispatcher import Dispatcher
 from modules.writer import ResultWriter
+from modules.deduplicator import Deduplicator
 
 def setup_argparser():
     """Set up the argument parser for the CLI tool."""
     parser = argparse.ArgumentParser(
-        description="Agentic CVE Remediation - Research and remediate vulnerabilities using AI"
+        description="Agentic CVE Remediation Tool"
     )
     
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     
-    # Legacy direct vulnerability ID command
-    cve_parser = subparsers.add_parser("cve", help="Process a single vulnerability ID (CVE or GHSA)")
+    # Legacy CVE command for processing a single vulnerability
+    cve_parser = subparsers.add_parser("cve", help="Process a single vulnerability (CVE or GHSA)")
     cve_parser.add_argument(
         "--cve", 
-        required=True, 
-        help="Vulnerability ID to research and remediate (e.g., CVE-2017-16911 or GHSA-xxxx-yyyy-zzzz)"
+        required=True,
+        help="CVE ID (e.g., CVE-2023-1234) or GHSA ID (e.g., GHSA-xxxx-yyyy-zzzz)"
     )
     cve_parser.add_argument(
         "--output", 
-        help="Output file to save the results (JSON format)"
+        help="Output file path for JSON results"
+    )
+    cve_parser.add_argument(
+        "--llm", 
+        choices=["gemini", "cohere"],
+        default="cohere",
+        help="LLM provider to use (default: cohere)"
     )
     cve_parser.add_argument(
         "--verbose", 
@@ -71,14 +78,28 @@ def setup_argparser():
         action="store_true", 
         help="Enable verbose output"
     )
+    scan_parser.add_argument(
+        "--llm", 
+        choices=["gemini", "cohere"],
+        default="cohere",
+        help="LLM provider to use (default: cohere)"
+    )
     
     return parser
 
-def validate_environment():
+def validate_environment(llm_type="cohere"):
     """Validate that all required environment variables are set."""
     load_dotenv()
     
-    required_vars = ["GHSA_API_KEY", "CVEDETAILS_API_KEY", "GEMINI_API_KEY"]
+    # Base required variables
+    required_vars = ["GHSA_API_KEY", "CVEDETAILS_API_KEY"]
+    
+    # Add LLM-specific API key requirement
+    if llm_type.lower() == "gemini":
+        required_vars.append("GEMINI_API_KEY")
+    elif llm_type.lower() == "cohere":
+        required_vars.append("COHERE_API_KEY")
+    
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
     
     if missing_vars:
@@ -203,9 +224,14 @@ def process_scan(args):
             
             print(f"Found {len(records)} vulnerability records")
             
+            # Deduplicate records by CVE ID
+            dedup = Deduplicator()
+            deduped_records = dedup.deduplicate_records(records)
+            print(f"After deduplication: {len(deduped_records)} unique vulnerability records")
+            
             # Process records in parallel
             print("Processing vulnerability records...")
-            results = dispatcher.process_records(records)
+            results = dispatcher.process_records(deduped_records)
             
             # Check for failures
             failures = [r for r in results if "error" in r]
@@ -243,8 +269,8 @@ def process_single_cve(args):
         output_dir = create_output_directory(args.cve)
         print(f"\nSaving all results to: {output_dir}\n")
         
-        # Initialize the research module
-        research_module = ResearchModule()
+        # Initialize the research module with the specified LLM
+        research_module = ResearchModule(llm_type=args.llm)
         
         # Research the CVE
         vulnerability_info = research_module.research_cve(args.cve)
@@ -280,8 +306,8 @@ def process_single_cve(args):
         
         print("\nGenerating remediation plan...\n")
         
-        # Initialize the resolver module
-        resolver_module = ResolverModule()
+        # Initialize the resolver module with the specified LLM
+        resolver_module = ResolverModule(llm_type=args.llm)
         
         # Generate remediation plan
         remediation_plan = resolver_module.generate_remediation_plan(vulnerability_info)
@@ -324,7 +350,9 @@ def main():
     args = parser.parse_args()
     
     # Validate environment variables
-    validate_environment()
+    # Default to args.llm if available, otherwise use cohere
+    llm_type = getattr(args, 'llm', 'cohere')
+    validate_environment(llm_type)
     
     # Dispatch to appropriate command handler
     if args.command == "cve":
