@@ -61,8 +61,8 @@ class ResolverModule:
             
             # Parse and structure the remediation plan
             # FIXME: restore structured_plan. Removed for rate limiting issues
-            # structured_plan = self._parse_remediation_plan(plan_text)
-            structured_plan = {}
+            # structured_plan = {}
+            structured_plan = self._parse_remediation_plan(plan_text)
             
             return {
                 "cve_id": cve_id,

@@ -104,7 +104,7 @@ class ResearchModule:
                         # Convert simple strings to dict format
                         ref_list = [{"url": url} for url in primary_ghsa_advisory["references"]]
                         # Enrich with content
-                        enriched_refs = self._enrich_references_with_content(ref_list)
+                        enriched_refs = self._enrich_references_with_content(ref_list, ghsa_id)
                         # Store the enriched references back in the advisory
                         # We'll keep both formats - the original string list and an enriched dict list
                         primary_ghsa_advisory["enriched_references"] = enriched_refs
@@ -121,7 +121,7 @@ class ResearchModule:
                     cve_details = self.cvedetails_client.get_cve_json(cve_id)
                     
                     if "references" in cve_details and isinstance(cve_details["references"], list):
-                        cve_details["references"] = self._enrich_references_with_content(cve_details["references"])
+                        cve_details["references"] = self._enrich_references_with_content(cve_details["references"], cve_id)
                         print("ENRICHED " + cve_id)
                     
                     remediations = self.cvedetails_client.get_remediations(cve_id)
@@ -373,7 +373,9 @@ class ResearchModule:
                 # Only enrich simple string references
                 if advisory["references"] and isinstance(advisory["references"][0], str):
                     ref_list = [{"url": url} for url in advisory["references"]]
-                    advisory["enriched_references"] = self._enrich_references_with_content(ref_list)
+                    # Get the vulnerability ID from the advisory (preferring GHSA ID)
+                    vuln_id = advisory.get("ghsaId") or advisory.get("cveId") or ""
+                    advisory["enriched_references"] = self._enrich_references_with_content(ref_list, vuln_id)
                     print("Late GHSA References ENRICHED")
         
         try:
@@ -559,12 +561,21 @@ class ResearchModule:
                 
             return "Error formatting GitHub Security Advisories. Check logs for details."
 
-    def _enrich_references_with_content(self, references):
-        """Fetch and add page content to each reference with a URL."""
+    def _enrich_references_with_content(self, references, vuln_id=""):
+        """Fetch and add page content to each reference with a URL.
+        
+        Args:
+            references: List of reference dictionaries with URLs to fetch
+            vuln_id: Vulnerability ID (CVE or GHSA) being processed
+        
+        Returns:
+            The enriched references list with content added
+        """
         for ref in references:
             url = ref.get("url")
             if url:
                 try:
+                    print(f"[ResearchModule] [{vuln_id}] Fetching content for {url}")
                     headers = {"User-Agent": "Mozilla/5.0"}
                     resp = requests.get(url, headers=headers, timeout=10)
                     resp.raise_for_status()
@@ -573,7 +584,7 @@ class ResearchModule:
                     text = main.get_text(separator="\n", strip=True) if main else soup.get_text(separator="\n", strip=True)
                     ref["content"] = text[:5000]  # Limit for sanity
                 except Exception as e:
-                    print(f"[ResearchModule] Failed to scrape {url}: {e}")
+                    print(f"[ResearchModule] [{vuln_id}] Failed to scrape {url}: {e}")
                     ref["content"] = None
                 time.sleep(1)  # Be polite to servers
         return references

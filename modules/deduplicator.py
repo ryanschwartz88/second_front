@@ -2,22 +2,24 @@
 Vulnerability record deduplicator for CVE Remediation Tool.
 
 This module handles deduplication of vulnerability records from multiple scanner sources.
-It ensures that duplicate CVE IDs are merged into a single record with combined scanner information.
+It ensures that duplicate vulnerability IDs (CVE or GHSA) are merged into a single record 
+with combined scanner information.
 """
 
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Union
 
 
 class Deduplicator:
     """
-    Deduplicates vulnerability records by combining records with the same CVE ID.
+    Deduplicates vulnerability records by combining records with the same vulnerability ID.
     When duplicates are found, scanner information is merged to preserve data from all sources.
+    Supports both CVE and GHSA ID formats.
     """
     
     @staticmethod
     def deduplicate_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Deduplicate vulnerability records by CVE ID, merging scanner information for duplicates.
+        Deduplicate vulnerability records by ID (CVE or GHSA), merging scanner information for duplicates.
         
         Args:
             records: List of normalized vulnerability records
@@ -28,31 +30,45 @@ class Deduplicator:
         if not records:
             return []
             
-        # Track unique records by CVE ID
+        # Track unique records by vulnerability ID
         deduped = {}
         
         for record in records:
-            cve_id = record.get('cve_id')
-            if not cve_id:
+            vuln_id = record.get('cve_id')
+            if not vuln_id:
                 continue
                 
-            if cve_id not in deduped:
-                # First time seeing this CVE ID, add the record
-                deduped[cve_id] = record
+            if vuln_id not in deduped:
+                # First time seeing this vulnerability ID, add the record
+                deduped[vuln_id] = record
             else:
-                # Merge scanner info for duplicate CVE IDs
-                existing = deduped[cve_id]
+                # Merge scanner info for duplicate vulnerability IDs
+                existing = deduped[vuln_id]
                 
-                # Ensure both scanner fields are lists
-                if not isinstance(existing['scanner'], list):
-                    existing['scanner'] = [existing['scanner']]
-                if not isinstance(record['scanner'], list):
-                    record['scanner'] = [record['scanner']]
+                # Handle scanners field (which should be a dict of scanner types to scanner data)
+                if 'scanners' in record:
+                    if 'scanners' not in existing:
+                        existing['scanners'] = {}
+                        
+                    # Merge scanner data from the new record into existing record
+                    for scanner_type, scanner_data in record['scanners'].items():
+                        existing['scanners'][scanner_type] = scanner_data
+                
+                # Handle legacy scanner field (for backward compatibility)
+                elif 'scanner' in record:
+                    if 'scanner' not in existing:
+                        existing['scanner'] = []
                     
-                # Add new scanner info if not already present
-                for scanner_info in record['scanner']:
-                    if scanner_info not in existing['scanner']:
-                        existing['scanner'].append(scanner_info)
+                    # Ensure both scanner fields are lists
+                    if not isinstance(existing['scanner'], list):
+                        existing['scanner'] = [existing['scanner']]
+                    if not isinstance(record['scanner'], list):
+                        record['scanner'] = [record['scanner']]
+                        
+                    # Add new scanner info if not already present
+                    for scanner_info in record['scanner']:
+                        if scanner_info not in existing['scanner']:
+                            existing['scanner'].append(scanner_info)
         
         # Return the deduplicated records
         return list(deduped.values())
