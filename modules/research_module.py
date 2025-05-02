@@ -81,8 +81,6 @@ class ResearchModule:
                                 print(f"Found related CVE ID: {cve_id}")
                                 break
                     
-                    if not cve_id:
-                        print(f"No CVE ID found for {ghsa_id}. Will use GHSA information only.")
                 except Exception as e:
                     print(f"Error fetching GHSA advisory: {str(e)}")
                     # Continue with just the GHSA ID
@@ -110,7 +108,7 @@ class ResearchModule:
                         # Store the enriched references back in the advisory
                         # We'll keep both formats - the original string list and an enriched dict list
                         primary_ghsa_advisory["enriched_references"] = enriched_refs
-                        print("GHSA References ENRICHED")
+                        print("ENRICHED " + ghsa_id)
                     
                 # Always add the primary advisory regardless of CVE ID presence
                 ghsa_advisories = [primary_ghsa_advisory]
@@ -124,7 +122,7 @@ class ResearchModule:
                     
                     if "references" in cve_details and isinstance(cve_details["references"], list):
                         cve_details["references"] = self._enrich_references_with_content(cve_details["references"])
-                        print("ENRICHED")
+                        print("ENRICHED " + cve_id)
                     
                     remediations = self.cvedetails_client.get_remediations(cve_id)
                 except Exception as e:
@@ -356,9 +354,20 @@ class ResearchModule:
         """Format GitHub Security Advisories for the prompt."""
         if not advisories:
             return "No GitHub Security Advisories available"
-        
+            
+        # Handle if advisories is not a list
+        if not isinstance(advisories, list):
+            if isinstance(advisories, dict):
+                # Single advisory as a dictionary
+                advisories = [advisories]
+            else:
+                return f"Invalid advisories data: expected list or dict, got {type(advisories)}"
+                
         # Apply enrichment to any advisories that haven't been enriched yet
         for advisory in advisories:
+            if not isinstance(advisory, dict):
+                continue  # Skip non-dictionary items
+                
             # Check if we need to enrich references
             if "references" in advisory and isinstance(advisory["references"], list) and "enriched_references" not in advisory:
                 # Only enrich simple string references
@@ -371,6 +380,10 @@ class ResearchModule:
             formatted = ""
             
             for i, advisory in enumerate(advisories, 1):
+                # Skip non-dictionary items
+                if not isinstance(advisory, dict):
+                    continue
+                    
                 # Handle different formats - GraphQL API results vs REST API results
                 ghsa_id = advisory.get('ghsaId') or advisory.get('ghsa_id', 'N/A')
                 summary = advisory.get('summary', 'N/A')
@@ -387,100 +400,164 @@ class ResearchModule:
                 CVE ID: {cve_id}
                 """
                 
-                # Handle the different vulnerability formats
+                # Handle vulnerabilities based on schema structure
                 formatted += "\nAffected Packages:\n"
                 
-                # Check if we have GraphQL style vulnerabilities
-                graphql_vulns = advisory.get('vulnerabilities', {}).get('nodes', [])
-                if graphql_vulns:
-                    for vuln in graphql_vulns:
-                        package = vuln.get('package', {})
-                        pkg_name = package.get('name', 'N/A')
-                        pkg_ecosystem = package.get('ecosystem', 'N/A')
-                        vuln_range = vuln.get('vulnerableVersionRange', 'N/A')
-                        patched_version = vuln.get('firstPatchedVersion', {}).get('identifier', 'N/A')
-                        
-                        formatted += f"  - Name: {pkg_name}\n"
-                        formatted += f"    Ecosystem: {pkg_ecosystem}\n"
-                        formatted += f"    Vulnerable Version Range: {vuln_range}\n"
-                        formatted += f"    First Patched Version: {patched_version}\n"
-                # Check if we have REST API style vulnerabilities
-                elif "vulnerabilities" in advisory and isinstance(advisory["vulnerabilities"], list):
-                    for vuln in advisory["vulnerabilities"]:
-                        package = vuln.get('package', {}) 
-                        pkg_name = package.get('name', 'N/A')
-                        pkg_ecosystem = package.get('ecosystem', 'N/A')
-                        vuln_range = vuln.get('vulnerable_version_range', 'N/A')
-                        patched_version = vuln.get('first_patched_version', 'N/A')
-                        
-                        formatted += f"  - Name: {pkg_name}\n"
-                        formatted += f"    Ecosystem: {pkg_ecosystem}\n"
-                        formatted += f"    Vulnerable Version Range: {vuln_range}\n"
-                        formatted += f"    First Patched Version: {patched_version}\n"
+                vulnerabilities = None
                 
-                # Handle CVSS information if available
-                if "cvss" in advisory:
+                # Check for all possible vulnerabilities data structures
+                if "vulnerabilities" in advisory:
+                    # Standard REST API format from schema
+                    if isinstance(advisory["vulnerabilities"], list):
+                        vulnerabilities = advisory["vulnerabilities"]
+                    # GraphQL API format with nodes
+                    elif isinstance(advisory["vulnerabilities"], dict) and "nodes" in advisory["vulnerabilities"]:
+                        vulnerabilities = advisory["vulnerabilities"]["nodes"]
+                
+                if vulnerabilities:
+                    for vuln in vulnerabilities:
+                        if not isinstance(vuln, dict):
+                            continue
+                            
+                        # Handle package info consistently
+                        package = vuln.get('package', {})
+                        if not isinstance(package, dict):
+                            package = {}
+                            
+                        pkg_name = package.get('name', 'N/A')
+                        pkg_ecosystem = package.get('ecosystem', 'N/A')
+                        
+                        # Handle version info with different field names
+                        vuln_range = (vuln.get('vulnerableVersionRange') or 
+                                    vuln.get('vulnerable_version_range', 'N/A'))
+                        
+                        # Handle patched version with different field structures
+                        if "firstPatchedVersion" in vuln and isinstance(vuln["firstPatchedVersion"], dict):
+                            patched_version = vuln["firstPatchedVersion"].get('identifier', 'N/A')
+                        else:
+                            patched_version = vuln.get('first_patched_version', 'N/A')
+                        
+                        formatted += f"  - Name: {pkg_name}\n"
+                        formatted += f"    Ecosystem: {pkg_ecosystem}\n"
+                        formatted += f"    Vulnerable Version Range: {vuln_range}\n"
+                        formatted += f"    First Patched Version: {patched_version}\n"
+                        
+                        # Add vulnerable functions if available
+                        if "vulnerable_functions" in vuln and vuln["vulnerable_functions"]:
+                            formatted += f"    Vulnerable Functions: {', '.join(vuln.get('vulnerable_functions', []))}\n"
+                
+                # Handle CVSS information if available (handle both schema formats)
+                if "cvss" in advisory and advisory["cvss"]:
                     cvss = advisory["cvss"]
-                    formatted += f"\nCVSS Score: {cvss.get('score', 'N/A')}\n"
-                    formatted += f"CVSS Vector: {cvss.get('vector_string', 'N/A')}\n"
-                elif "cvss_severities" in advisory and advisory["cvss_severities"]:
+                    if isinstance(cvss, dict):
+                        formatted += f"\nCVSS Score: {cvss.get('score', 'N/A')}\n"
+                        formatted += f"CVSS Vector: {cvss.get('vector_string', 'N/A')}\n"
+                
+                # Handle newer cvss_severities format (per schema)
+                if "cvss_severities" in advisory and advisory["cvss_severities"]:
                     cvss_info = advisory["cvss_severities"]
-                    if "cvss_v3" in cvss_info and cvss_info["cvss_v3"]:
-                        formatted += f"\nCVSS v3 Score: {cvss_info['cvss_v3'].get('score', 'N/A')}\n"
-                        formatted += f"CVSS v3 Vector: {cvss_info['cvss_v3'].get('vector_string', 'N/A')}\n"
+                    if isinstance(cvss_info, dict):
+                        # CVSS v3
+                        if "cvss_v3" in cvss_info and cvss_info["cvss_v3"]:
+                            v3_data = cvss_info["cvss_v3"]
+                            if isinstance(v3_data, dict):
+                                formatted += f"\nCVSS v3 Score: {v3_data.get('score', 'N/A')}\n"
+                                formatted += f"CVSS v3 Vector: {v3_data.get('vector_string', 'N/A')}\n"
+                        
+                        # CVSS v4 (newer schema)
+                        if "cvss_v4" in cvss_info and cvss_info["cvss_v4"]:
+                            v4_data = cvss_info["cvss_v4"]
+                            if isinstance(v4_data, dict):
+                                formatted += f"\nCVSS v4 Score: {v4_data.get('score', 'N/A')}\n"
+                                formatted += f"CVSS v4 Vector: {v4_data.get('vector_string', 'N/A')}\n"
+                
+                # Add CWEs if available
+                if "cwes" in advisory and advisory["cwes"]:
+                    cwes = advisory["cwes"]
+                    if isinstance(cwes, list) and cwes:
+                        formatted += "\nCommon Weakness Enumerations (CWEs):\n"
+                        for cwe in cwes:
+                            if isinstance(cwe, dict):
+                                cwe_id = cwe.get('cwe_id', 'N/A')
+                                cwe_name = cwe.get('name', 'N/A')
+                                formatted += f"  - {cwe_id}: {cwe_name}\n"
                 
                 # Handle References
                 formatted += "\nReferences:\n"
                 
-                # Handle references based on their format
+                # Handle references based on schema and format
+                has_references = False
+                
+                # First check for enriched references (our custom format)
                 if "enriched_references" in advisory and advisory["enriched_references"]:
-                    # Handle enriched references (dictionary format with content)
-                    # First check if they're all dictionaries
-                    if all(isinstance(ref, dict) for ref in advisory["enriched_references"]):
+                    refs = advisory["enriched_references"]
+                    if isinstance(refs, list) and refs:
+                        has_references = True
+                        
                         # Find references that have content
                         refs_with_content = []
-                        for ref in advisory["enriched_references"]:
+                        for ref in refs:
                             if isinstance(ref, dict) and ref.get("content"):
                                 refs_with_content.append(ref)
                         
-                        # Display URLs
-                        for i, ref in enumerate(advisory["enriched_references"][:5], 1):
+                        # Display URLs (limit to 5)
+                        for i, ref in enumerate(refs[:5], 1):
                             if isinstance(ref, dict):
                                 formatted += f"  {i}. {ref.get('url', 'N/A')}\n"
                             else:
                                 formatted += f"  {i}. {str(ref)}\n"
                         
-                        # Include all available reference content
+                        # Include available reference content
                         if refs_with_content:
                             formatted += "\nReference content:\n"
-                            for i, ref in enumerate(refs_with_content, 1):
+                            for i, ref in enumerate(refs_with_content[:3], 1):  # Limit to 3 for brevity
                                 formatted += f"\nReference {i}: {ref.get('url', 'N/A')}\n"
                                 content = ref.get("content", "")
                                 if content:
+                                    # Truncate very long content
+                                    if len(content) > 1000:
+                                        content = content[:1000] + "...\n(content truncated)"
                                     formatted += f"{content}\n"
-                    else:
-                        # If not all are dictionaries, handle as mixed or string list
-                        for i, ref in enumerate(advisory["enriched_references"][:5], 1):
-                            if isinstance(ref, dict):
+                
+                # Fall back to standard references (from schema)
+                if not has_references and "references" in advisory:
+                    refs = advisory["references"]
+                    if isinstance(refs, list) and refs:
+                        # Handle different possible reference formats
+                        for i, ref in enumerate(refs[:5], 1):  # Limit to 5
+                            if isinstance(ref, dict) and "url" in ref:
                                 formatted += f"  {i}. {ref.get('url', 'N/A')}\n"
+                            elif isinstance(ref, str):
+                                formatted += f"  {i}. {ref}\n"
                             else:
                                 formatted += f"  {i}. {str(ref)}\n"
                 
-                # Fall back to regular references if no enriched ones
-                elif "references" in advisory and isinstance(advisory["references"], list):
-                    # Handle different possible formats
-                    for i, ref in enumerate(advisory["references"][:5], 1):
-                        if isinstance(ref, dict) and "url" in ref:
-                            formatted += f"  {i}. {ref.get('url', 'N/A')}\n"
-                        else:
-                            formatted += f"  {i}. {str(ref)}\n"
+                # Add published/updated date info
+                if "published_at" in advisory:
+                    formatted += f"\nPublished: {advisory.get('published_at', 'N/A')}\n"
+                if "updated_at" in advisory:
+                    formatted += f"Updated: {advisory.get('updated_at', 'N/A')}\n"
                 
                 formatted += "\n"
             
             return formatted
         except Exception as e:
-            print(f"Error formatting GitHub advisories: {str(e)}")
-            return str(advisories)
+            error_msg = f"Error formatting GitHub advisories: {str(e)}"
+            print(error_msg)
+            
+            # Add diagnostic information that doesn't risk further exceptions
+            try:
+                # Safe diagnostics that shouldn't cause cascading errors
+                if isinstance(advisories, list):
+                    print(f"  - advisories is a list with {len(advisories)} item(s)")
+                    if advisories:
+                        print(f"  - First item type: {type(advisories[0]).__name__}")
+                else:
+                    print(f"  - advisories is type: {type(advisories).__name__}")
+            except Exception as debug_e:
+                print(f"Error during diagnostics: {str(debug_e)}")
+                
+            return "Error formatting GitHub Security Advisories. Check logs for details."
 
     def _enrich_references_with_content(self, references):
         """Fetch and add page content to each reference with a URL."""
@@ -488,7 +565,6 @@ class ResearchModule:
             url = ref.get("url")
             if url:
                 try:
-                    print(f"[ResearchModule] Scraping content from: {url}")
                     headers = {"User-Agent": "Mozilla/5.0"}
                     resp = requests.get(url, headers=headers, timeout=10)
                     resp.raise_for_status()

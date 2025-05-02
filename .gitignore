@@ -3,3 +3,5 @@ venv/
 results/
 __pycache__/
 *.pyc
+excalidraw_sample/
+excalidraw/
