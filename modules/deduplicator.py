@@ -6,7 +6,7 @@ It ensures that duplicate vulnerability IDs (CVE or GHSA) are merged into a sing
 with combined scanner information.
 """
 
-from typing import Dict, List, Any, Union
+from typing import Dict, List, Any
 
 
 class Deduplicator:
@@ -19,7 +19,7 @@ class Deduplicator:
     @staticmethod
     def deduplicate_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Deduplicate vulnerability records by ID (CVE or GHSA), merging scanner information for duplicates.
+        Deduplicate vulnerability records by ID (CVE or GHSA), merging packages and scanner information.
         
         Args:
             records: List of normalized vulnerability records
@@ -30,20 +30,27 @@ class Deduplicator:
         if not records:
             return []
             
-        # Track unique records by vulnerability ID
+        # Track unique records by vulnerability ID only
         deduped = {}
         
         for record in records:
             vuln_id = record.get('cve_id')
-            if not vuln_id:
+            packages = record.get('package_name', [])
+            if not vuln_id or not packages:
                 continue
-                
+
             if vuln_id not in deduped:
                 # First time seeing this vulnerability ID, add the record
                 deduped[vuln_id] = record
             else:
-                # Merge scanner info for duplicate vulnerability IDs
                 existing = deduped[vuln_id]
+                
+                # Merge package_name lists, avoiding duplicates
+                existing_packages = existing.get('package_name', [])
+                for package in packages:
+                    if package not in existing_packages:
+                        existing_packages.append(package)
+                existing['package_name'] = existing_packages
                 
                 # Handle scanners field (which should be a dict of scanner types to scanner data)
                 if 'scanners' in record:

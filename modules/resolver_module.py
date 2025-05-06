@@ -86,6 +86,7 @@ class ResolverModule:
         Returns:
             str: A detailed remediation plan
         """
+        print(f"[ResolverModule] Generating plan for {cve_id}")
         # Prepare the prompt for the LLM
         prompt = f"""
         Based on the following vulnerability information for {cve_id}, generate a detailed and actionable remediation plan.

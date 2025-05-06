@@ -61,6 +61,7 @@ class ResearchModule:
             dict: Comprehensive vulnerability information and summary
         """
         try:
+            print(f"[ResearchModule] Starting research for {vuln_id}")
             # Determine if this is a GHSA ID or CVE ID
             is_ghsa = vuln_id.upper().startswith("GHSA-")
             
@@ -163,6 +164,7 @@ class ResearchModule:
             str: A comprehensive summary of the vulnerability
         """
         # Prepare the prompt for the LLM
+        print(f"[ResearchModule] Generating vuln summary for {vuln_id}")
         
         prompt = f"""
         Generate a comprehensive summary of the vulnerability {vuln_id} based on the following information.

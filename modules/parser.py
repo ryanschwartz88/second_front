@@ -8,7 +8,7 @@ them into a consistent format.
 import json
 import os
 from pathlib import Path
-from typing import Dict, List, Generator, Optional, Any, Union
+from typing import Dict, List, Generator, Optional, Any
 
 class VulnerabilityParser:
     """Parses and normalizes vulnerability scanner reports."""
@@ -82,7 +82,7 @@ class VulnerabilityParser:
                 # Create normalized record
                 normalized_record = {
                     "cve_id": cve_id,
-                    "package_name": package_name,
+                    "package_name": [package_name] if package_name else [],
                     "installed_version": installed_version,
                     "fix_version": fix_version,
                     "severity": vuln.get("severity"),
@@ -144,7 +144,7 @@ class VulnerabilityParser:
                 # Create normalized record
                 normalized_record = {
                     "cve_id": cve_id,
-                    "package_name": package_name,
+                    "package_name": [package_name] if package_name else [],
                     "installed_version": installed_version,
                     "fix_version": fix_version,
                     "severity": vuln.get("severity", "Unknown"),
